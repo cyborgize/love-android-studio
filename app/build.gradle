@@ -1,0 +1,73 @@
+import org.apache.tools.ant.taskdefs.condition.Os
+
+apply plugin: 'com.android.model.application'
+
+model {
+
+    android {
+        compileSdkVersion = 23
+        buildToolsVersion = "23.0.1"
+
+        defaultConfig.with {
+            applicationId = "org.love2d.android"
+            minSdkVersion.apiLevel = 10 // Android 2.3.3
+            targetSdkVersion.apiLevel = 23
+            versionCode = 16
+            versionName = "0.10.0-alpha"
+        }
+    }
+
+    android.ndk {
+        //platform = 10
+        moduleName = "native"
+        ldLibs += ['log', 'z']
+        cppFlags += "-std=c++11"
+        //cppFlags += "-fexceptions"
+        cppFlags += "-frtti"
+        cppFlags  += "-I${file("src/main/jni/prebuilts/include")}".toString()
+        //stl = 'gnustl_shared'
+        abiFilters = ["armeabi-v7a"]
+    }
+
+    android.sources{
+        main.jni {
+            source {
+                srcDirs = ['src/main/none']
+            }
+        }
+        main.jniLibs {
+            source {
+                srcDirs = ['src/main/libs']
+            }
+        }
+    }
+
+    android.buildTypes {
+        release {
+            minifyEnabled = false
+            shrinkResources = true
+            proguardFiles += file('proguard-rules.pro')
+        }
+    }
+}
+
+// call regular ndk-build(.cmd) script from app directory
+task ndkBuild(type: Exec) {
+    Properties properties = new Properties()
+    properties.load(project.rootProject.file('local.properties').newDataInputStream())
+    def sdkDir = properties.getProperty('sdk.dir')
+    def ndkDir = properties.getProperty('ndk.dir')
+    if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+        commandLine 'ndk-build.cmd', '-C', file('src/main').absolutePath
+    } else {
+        commandLine ndkDir + '/ndk-build', '-C', file('src/main').absolutePath
+    }
+}
+
+tasks.withType(JavaCompile) {
+    compileTask -> compileTask.dependsOn ndkBuild
+}
+
+dependencies {
+    compile fileTree(dir: 'libs', include: ['*.jar'])
+}
