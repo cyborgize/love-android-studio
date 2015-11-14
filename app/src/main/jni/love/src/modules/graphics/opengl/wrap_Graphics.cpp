@@ -184,6 +184,20 @@ int w_setScissor(lua_State *L)
 	return 0;
 }
 
+int w_intersectScissor(lua_State *L)
+{
+	int x = (int) luaL_checknumber(L, 1);
+	int y = (int) luaL_checknumber(L, 2);
+	int w = (int) luaL_checknumber(L, 3);
+	int h = (int) luaL_checknumber(L, 4);
+
+	if (w < 0 || h < 0)
+		return luaL_error(L, "Can't set scissor with negative width and/or height.");
+
+	instance()->intersectScissor(x, y, w, h);
+	return 0;
+}
+
 int w_getScissor(lua_State *L)
 {
 	int x, y, w, h;
@@ -354,13 +368,13 @@ int w_newImage(lua_State *L)
 int w_newQuad(lua_State *L)
 {
 	Quad::Viewport v;
-	v.x = (float) luaL_checknumber(L, 1);
-	v.y = (float) luaL_checknumber(L, 2);
-	v.w = (float) luaL_checknumber(L, 3);
-	v.h = (float) luaL_checknumber(L, 4);
+	v.x = luaL_checknumber(L, 1);
+	v.y = luaL_checknumber(L, 2);
+	v.w = luaL_checknumber(L, 3);
+	v.h = luaL_checknumber(L, 4);
 
-	float sw = (float) luaL_checknumber(L, 5);
-	float sh = (float) luaL_checknumber(L, 6);
+	double sw = luaL_checknumber(L, 5);
+	double sh = luaL_checknumber(L, 6);
 
 	Quad *quad = instance()->newQuad(v, sw, sh);
 	luax_pushtype(L, GRAPHICS_QUAD_ID, quad);
@@ -776,14 +790,6 @@ static Mesh *newCustomMesh(lua_State *L)
 			lua_rawgeti(L, 2, vertindex + 1);
 			luaL_checktype(L, -1, LUA_TTABLE);
 
-			if ((int) luax_objlen(L, -1) < vertexcomponents)
-			{
-				t->release();
-				const char *err = "Invalid number of components in vertex #%d (expected %d components, got %d)";
-				luaL_error(L, err, vertindex+1, vertexcomponents, luax_objlen(L, -1));
-				return nullptr;
-			}
-
 			int n = 0;
 			for (size_t i = 0; i < vertexformat.size(); i++)
 			{
@@ -845,7 +851,9 @@ int w_newText(lua_State *L)
 		luax_catchexcept(L, [&](){ t = instance()->newText(font); });
 	else
 	{
-		std::string text = luax_checkstring(L, 2);
+		std::vector<Font::ColoredString> text;
+		luax_checkcoloredstring(L, 2, text);
+
 		luax_catchexcept(L, [&](){ t = instance()->newText(font, text); });
 	}
 
@@ -1460,7 +1468,9 @@ int w_draw(lua_State *L)
 
 int w_print(lua_State *L)
 {
-	std::string str = luax_checkstring(L, 1);
+	std::vector<Font::ColoredString> str;
+	luax_checkcoloredstring(L, 1, str);
+
 	float x = (float)luaL_optnumber(L, 2, 0.0);
 	float y = (float)luaL_optnumber(L, 3, 0.0);
 	float angle = (float)luaL_optnumber(L, 4, 0.0f);
@@ -1479,7 +1489,9 @@ int w_print(lua_State *L)
 
 int w_printf(lua_State *L)
 {
-	std::string str = luax_checkstring(L, 1);
+	std::vector<Font::ColoredString> str;
+	luax_checkcoloredstring(L, 1, str);
+
 	float x = (float)luaL_checknumber(L, 2);
 	float y = (float)luaL_checknumber(L, 3);
 	float wrap = (float)luaL_checknumber(L, 4);
@@ -1515,11 +1527,86 @@ int w_printf(lua_State *L)
 	return 0;
 }
 
-int w_point(lua_State *L)
+int w_points(lua_State *L)
 {
-	float x = (float)luaL_checknumber(L, 1);
-	float y = (float)luaL_checknumber(L, 2);
-	instance()->point(x, y);
+	// love.graphics.points has 3 variants:
+	// - points(x1, y1, x2, y2, ...)
+	// - points({x1, y1, x2, y2, ...})
+	// - points({{x1, y1 [, r, g, b, a]}, {x2, y2 [, r, g, b, a]}, ...})
+
+	int args = lua_gettop(L);
+	bool is_table = false;
+	bool is_table_of_tables = false;
+	if (args == 1 && lua_istable(L, 1))
+	{
+		is_table = true;
+		args = (int) luax_objlen(L, 1);
+
+		lua_rawgeti(L, 1, 1);
+		is_table_of_tables = lua_istable(L, -1);
+		lua_pop(L, 1);
+	}
+
+	if (args % 2 != 0 && !is_table_of_tables)
+		return luaL_error(L, "Number of vertex components must be a multiple of two");
+
+	int numpoints = args / 2;
+	if (is_table_of_tables)
+		numpoints = args;
+
+	float *coords = nullptr;
+	uint8 *colors = nullptr;
+
+	coords = new float[numpoints * 2];
+
+	if (is_table_of_tables)
+		colors = new uint8[numpoints * 4];
+
+	if (is_table)
+	{
+		if (is_table_of_tables)
+		{
+			// points({{x1, y1 [, r, g, b, a]}, {x2, y2 [, r, g, b, a]}, ...})
+			for (int i = 0; i < args; i++)
+			{
+				lua_rawgeti(L, 1, i + 1);
+				for (int j = 1; j <= 6; j++)
+					lua_rawgeti(L, -j, j);
+
+				coords[i * 2 + 0] = luax_tofloat(L, -6);
+				coords[i * 2 + 1] = luax_tofloat(L, -5);
+
+				colors[i * 4 + 0] = (uint8) luaL_optnumber(L, -4, 255);
+				colors[i * 4 + 1] = (uint8) luaL_optnumber(L, -3, 255);
+				colors[i * 4 + 2] = (uint8) luaL_optnumber(L, -2, 255);
+				colors[i * 4 + 3] = (uint8) luaL_optnumber(L, -1, 255);
+
+				lua_pop(L, 7);
+			}
+		}
+		else
+		{
+			// points({x1, y1, x2, y2, ...})
+			for (int i = 0; i < args; i++)
+			{
+				lua_rawgeti(L, 1, i + 1);
+				coords[i] = luax_tofloat(L, -1);
+				lua_pop(L, 1);
+			}
+		}
+	}
+	else
+	{
+		for (int i = 0; i < args; i++)
+			coords[i] = luax_tofloat(L, i + 1);
+	}
+
+	instance()->points(coords, colors, numpoints);
+
+	delete[] coords;
+	if (colors)
+		delete[] colors;
+
 	return 0;
 }
 
@@ -1832,13 +1919,14 @@ static const luaL_Reg functions[] =
 	{ "getDimensions", w_getDimensions },
 
 	{ "setScissor", w_setScissor },
+	{ "intersectScissor", w_intersectScissor },
 	{ "getScissor", w_getScissor },
 
 	{ "stencil", w_stencil },
 	{ "setStencilTest", w_setStencilTest },
 	{ "getStencilTest", w_getStencilTest },
 
-	{ "point", w_point },
+	{ "points", w_points },
 	{ "line", w_line },
 	{ "rectangle", w_rectangle },
 	{ "circle", w_circle },

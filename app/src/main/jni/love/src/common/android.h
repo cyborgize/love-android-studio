@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2006-2014 LOVE Development Team
+ * Copyright (c) 2006-2015 LOVE Development Team
  *
  * This software is provided 'as-is', without any express or implied
  * warranty.  In no event will the authors be held liable for any damages
@@ -35,8 +35,8 @@ namespace android
 /**
  * Enables or disables immersive mode where the navigation bar is hidden.
  **/
-void setImmersive (bool immersive_active);
-bool getImmersive ();
+void setImmersive(bool immersive_active);
+bool getImmersive();
 
 /**
  * Gets the scale factor of the window's screen, e.g. on Retina displays this
@@ -47,24 +47,24 @@ double getScreenScale();
 /**
  * Gets the selected love file in the device filesystem.
  **/
-const char* getSelectedGameFile();
+const char *getSelectedGameFile();
 
-bool openURL (const std::string &url);
+bool openURL(const std::string &url);
 
-void vibrate (double seconds);
+void vibrate(double seconds);
 
 /*
  * Helper functions for the filesystem module
  */
-void freeGameArchiveMemory (void *ptr);
+void freeGameArchiveMemory(void *ptr);
 
-bool loadGameArchiveToMemory (const char* filename, char **ptr, size_t *size);
+bool loadGameArchiveToMemory(const char *filename, char **ptr, size_t *size);
 
-bool directoryExists(const char* path);
+bool directoryExists(const char *path);
 
-bool mkdir (const char* path);
+bool mkdir(const char *path);
 
-bool createStorageDirectories ();
+bool createStorageDirectories();
 
 } // android
 } // love

@@ -30,7 +30,7 @@ namespace graphics
 namespace opengl
 {
 
-Text::Text(Font *font, const std::string &text)
+Text::Text(Font *font, const std::vector<Font::ColoredString> &text)
 	: font(font)
 	, vbo(nullptr)
 	, text_info()
@@ -115,9 +115,9 @@ void Text::addTextData(const TextData &t)
 
 	// We only have formatted text if the align mode is valid.
 	if (t.align == Font::ALIGN_MAX_ENUM)
-		new_commands = font->generateVertices(t.text, vertices, 0.0f, Vector(0.0f, 0.0f), &text_info);
+		new_commands = font->generateVertices(t.codepoints, vertices, 0.0f, Vector(0.0f, 0.0f), &text_info);
 	else
-		new_commands = font->generateVerticesFormatted(t.text, t.wrap, t.align, vertices, &text_info);
+		new_commands = font->generateVerticesFormatted(t.codepoints, t.wrap, t.align, vertices, &text_info);
 
 	if (t.use_matrix)
 		t.matrix.transform(&vertices[0], &vertices[0], (int) vertices.size());
@@ -165,20 +165,20 @@ void Text::addTextData(const TextData &t)
 		regenerateVertices();
 }
 
-void Text::set(const std::string &text)
+void Text::set(const std::vector<Font::ColoredString> &text)
 {
-	if (text.empty())
-		return set();
-
-	addTextData({text, -1.0f, Font::ALIGN_MAX_ENUM, false, false, Matrix3()});
+	return set(text, -1.0f, Font::ALIGN_MAX_ENUM);
 }
 
-void Text::set(const std::string &text, float wrap, Font::AlignMode align)
+void Text::set(const std::vector<Font::ColoredString> &text, float wrap, Font::AlignMode align)
 {
-	if (text.empty())
+	if (text.empty() || (text.size() == 1 && text[0].str.empty()))
 		return set();
 
-	addTextData({text, wrap, align, false, false, Matrix3()});
+	Font::ColoredCodepoints codepoints;
+	Font::getCodepointsFromString(text, codepoints);
+
+	addTextData({codepoints, wrap, align, false, false, Matrix3()});
 }
 
 void Text::set()
@@ -186,24 +186,22 @@ void Text::set()
 	clear();
 }
 
-void Text::add(const std::string &text, float x, float y, float angle, float sx, float sy, float ox, float oy, float kx, float ky)
+void Text::add(const std::vector<Font::ColoredString> &text, float x, float y, float angle, float sx, float sy, float ox, float oy, float kx, float ky)
 {
-	if (text.empty())
-		return;
-
-	Matrix3 m(x, y, angle, sx, sy, ox, oy, kx, ky);
-
-	addTextData({text, -1.0f, Font::ALIGN_MAX_ENUM, true, true, m});
+	return addf(text, -1.0f, Font::ALIGN_MAX_ENUM, x, y, angle, sx, sy, ox, oy, kx, ky);
 }
 
-void Text::addf(const std::string &text, float wrap, Font::AlignMode align, float x, float y, float angle, float sx, float sy, float ox, float oy, float kx, float ky)
+void Text::addf(const std::vector<Font::ColoredString> &text, float wrap, Font::AlignMode align, float x, float y, float angle, float sx, float sy, float ox, float oy, float kx, float ky)
 {
-	if (text.empty())
+	if (text.empty() || (text.size() == 1 && text[0].str.empty()))
 		return;
+
+	Font::ColoredCodepoints codepoints;
+	Font::getCodepointsFromString(text, codepoints);
 
 	Matrix3 m(x, y, angle, sx, sy, ox, oy, kx, ky);
 
-	addTextData({text, wrap, align, true, true, m});
+	addTextData({codepoints, wrap, align, true, true, m});
 }
 
 void Text::clear()
@@ -226,12 +224,13 @@ void Text::draw(float x, float y, float angle, float sx, float sy, float ox, flo
 	if (font->getTextureCacheID() != texture_cache_id)
 		regenerateVertices();
 
-	const size_t pos_offset = offsetof(Font::GlyphVertex, x);
-	const size_t tex_offset = offsetof(Font::GlyphVertex, s);
+	const size_t pos_offset   = offsetof(Font::GlyphVertex, x);
+	const size_t tex_offset   = offsetof(Font::GlyphVertex, s);
+	const size_t color_offset = offsetof(Font::GlyphVertex, color.r);
 	const size_t stride = sizeof(Font::GlyphVertex);
 
 	OpenGL::TempTransform transform(gl);
-	transform.get() *= Matrix4(ceilf(x), ceilf(y), angle, sx, sy, ox, oy, kx, ky);
+	transform.get() *= Matrix4(x, y, angle, sx, sy, ox, oy, kx, ky);
 
 	{
 		GLBuffer::Bind bind(*vbo);
@@ -239,10 +238,11 @@ void Text::draw(float x, float y, float angle, float sx, float sy, float ox, flo
 
 		// Font::drawVertices expects AttribPointer calls to be done already.
 		glVertexAttribPointer(ATTRIB_POS, 2, GL_FLOAT, GL_FALSE, stride, vbo->getPointer(pos_offset));
-		glVertexAttribPointer(ATTRIB_TEXCOORD, 2, GL_FLOAT, GL_FALSE, stride, vbo->getPointer(tex_offset));
+		glVertexAttribPointer(ATTRIB_TEXCOORD, 2, GL_UNSIGNED_SHORT, GL_TRUE, stride, vbo->getPointer(tex_offset));
+		glVertexAttribPointer(ATTRIB_COLOR, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, vbo->getPointer(color_offset));
 	}
 
-	gl.useVertexAttribArrays(ATTRIBFLAG_POS | ATTRIBFLAG_TEXCOORD);
+	gl.useVertexAttribArrays(ATTRIBFLAG_POS | ATTRIBFLAG_TEXCOORD | ATTRIBFLAG_COLOR);
 
 	font->drawVertices(draw_commands);
 }

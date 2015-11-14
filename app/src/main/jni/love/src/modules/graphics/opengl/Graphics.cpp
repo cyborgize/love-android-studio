@@ -110,7 +110,7 @@ void Graphics::restoreState(const DisplayState &s)
 	setPointSize(s.pointSize);
 
 	if (s.scissor)
-		setScissor(s.scissorBox.x, s.scissorBox.y, s.scissorBox.w, s.scissorBox.h);
+		setScissor(s.scissorRect.x, s.scissorRect.y, s.scissorRect.w, s.scissorRect.h);
 	else
 		setScissor();
 
@@ -131,11 +131,10 @@ void Graphics::restoreStateChecked(const DisplayState &s)
 {
 	const DisplayState &cur = states.back();
 
-	if (*(uint32 *) &s.color.r != *(uint32 *) &cur.color.r)
+	if (s.color != cur.color)
 		setColor(s.color);
 
-	if (*(uint32 *) &s.backgroundColor.r != *(uint32 *) &cur.backgroundColor.r)
-		setBackgroundColor(s.backgroundColor);
+	setBackgroundColor(s.backgroundColor);
 
 	if (s.blendMode != cur.blendMode || s.blendMultiplyAlpha != cur.blendMultiplyAlpha)
 		setBlendMode(s.blendMode, s.blendMultiplyAlpha);
@@ -148,10 +147,10 @@ void Graphics::restoreStateChecked(const DisplayState &s)
 	if (s.pointSize != cur.pointSize)
 		setPointSize(s.pointSize);
 
-	if (s.scissor != cur.scissor || (s.scissor && !(s.scissorBox == cur.scissorBox)))
+	if (s.scissor != cur.scissor || (s.scissor && !(s.scissorRect == cur.scissorRect)))
 	{
 		if (s.scissor)
-			setScissor(s.scissorBox.x, s.scissorBox.y, s.scissorBox.w, s.scissorBox.h);
+			setScissor(s.scissorRect.x, s.scissorRect.y, s.scissorRect.w, s.scissorRect.h);
 		else
 			setScissor();
 	}
@@ -295,6 +294,10 @@ bool Graphics::setMode(int width, int height)
 
 	setDebug(enabledebug);
 
+	// Reload all volatile objects.
+	if (!Volatile::loadAll())
+		::printf("Could not reload all volatile objects.\n");
+
 	// Create a quad indices object owned by love.graphics, so at least one
 	// QuadIndices object is alive at all times while love.graphics is alive.
 	// This makes sure there aren't too many expensive destruction/creations of
@@ -302,10 +305,6 @@ bool Graphics::setMode(int width, int height)
 	// objects is destroyed when the last object is destroyed.
 	if (quadIndices == nullptr)
 		quadIndices = new QuadIndices(20);
-
-	// Reload all volatile objects.
-	if (!Volatile::loadAll())
-		::printf("Could not reload all volatile objects.\n");
 
 	// Restore the graphics state.
 	restoreState(states.back());
@@ -581,14 +580,35 @@ bool Graphics::isCreated() const
 
 void Graphics::setScissor(int x, int y, int width, int height)
 {
-	OpenGL::Viewport box = {x, y, width, height};
+	ScissorRect rect = {x, y, width, height};
 
 	glEnable(GL_SCISSOR_TEST);
 	// OpenGL's reversed y-coordinate is compensated for in OpenGL::setScissor.
-	gl.setScissor(box);
+	gl.setScissor({rect.x, rect.y, rect.w, rect.h});
 
 	states.back().scissor = true;
-	states.back().scissorBox = box;
+	states.back().scissorRect = rect;
+}
+
+void Graphics::intersectScissor(int x, int y, int width, int height)
+{
+	ScissorRect rect = states.back().scissorRect;
+
+	if (!states.back().scissor)
+	{
+		rect.x = 0;
+		rect.y = 0;
+		rect.w = std::numeric_limits<int>::max();
+		rect.h = std::numeric_limits<int>::max();
+	}
+
+	int x1 = std::max(rect.x, x);
+	int y1 = std::max(rect.y, y);
+
+	int x2 = std::min(rect.x + rect.w, x + width);
+	int y2 = std::min(rect.y + rect.h, y + height);
+
+	setScissor(x1, y1, std::max(0, x2 - x1), std::max(0, y2 - y1));
 }
 
 void Graphics::setScissor()
@@ -601,10 +621,10 @@ bool Graphics::getScissor(int &x, int &y, int &width, int &height) const
 {
 	const DisplayState &state = states.back();
 
-	x = state.scissorBox.x;
-	y = state.scissorBox.y;
-	width = state.scissorBox.w;
-	height = state.scissorBox.h;
+	x = state.scissorRect.x;
+	y = state.scissorRect.y;
+	width = state.scissorRect.w;
+	height = state.scissorRect.h;
 
 	return state.scissor;
 }
@@ -688,7 +708,7 @@ Image *Graphics::newImage(const std::vector<love::image::CompressedImageData *> 
 	return new Image(cdata, flags);
 }
 
-Quad *Graphics::newQuad(Quad::Viewport v, float sw, float sh)
+Quad *Graphics::newQuad(Quad::Viewport v, double sw, double sh)
 {
 	return new Quad(v, sw, sh);
 }
@@ -794,7 +814,7 @@ Mesh *Graphics::newMesh(const std::vector<Mesh::AttribFormat> &vertexformat, con
 	return new Mesh(vertexformat, data, datasize, drawmode, usage);
 }
 
-Text *Graphics::newText(Font *font, const std::string &text)
+Text *Graphics::newText(Font *font, const std::vector<Font::ColoredString> &text)
 {
 	return new Text(font, text);
 }
@@ -1085,7 +1105,7 @@ bool Graphics::isWireframe() const
 	return states.back().wireframe;
 }
 
-void Graphics::print(const std::string &str, float x, float y , float angle, float sx, float sy, float ox, float oy, float kx, float ky)
+void Graphics::print(const std::vector<Font::ColoredString> &str, float x, float y , float angle, float sx, float sy, float ox, float oy, float kx, float ky)
 {
 	checkSetDefaultFont();
 
@@ -1095,7 +1115,7 @@ void Graphics::print(const std::string &str, float x, float y , float angle, flo
 		state.font->print(str, x, y, angle, sx, sy, ox, oy, kx, ky);
 }
 
-void Graphics::printf(const std::string &str, float x, float y, float wrap, Font::AlignMode align, float angle, float sx, float sy, float ox, float oy, float kx, float ky)
+void Graphics::printf(const std::vector<Font::ColoredString> &str, float x, float y, float wrap, Font::AlignMode align, float angle, float sx, float sy, float ox, float oy, float kx, float ky)
 {
 	checkSetDefaultFont();
 
@@ -1109,17 +1129,24 @@ void Graphics::printf(const std::string &str, float x, float y, float wrap, Font
  * Primitives
  **/
 
-void Graphics::point(float x, float y)
+void Graphics::points(const float *coords, const uint8 *colors, size_t numpoints)
 {
-	OpenGL::TempDebugGroup debuggroup("Graphics point draw");
-
-	GLfloat coord[] = {x, y};
+	OpenGL::TempDebugGroup debuggroup("Graphics points draw");
 
 	gl.prepareDraw();
 	gl.bindTexture(gl.getDefaultTexture());
-	gl.useVertexAttribArrays(ATTRIBFLAG_POS);
-	glVertexAttribPointer(ATTRIB_POS, 2, GL_FLOAT, GL_FALSE, 0, coord);
-	gl.drawArrays(GL_POINTS, 0, 1);
+
+	uint32 attribflags = ATTRIBFLAG_POS;
+	glVertexAttribPointer(ATTRIB_POS, 2, GL_FLOAT, GL_FALSE, 0, coords);
+
+	if (colors)
+	{
+		attribflags |= ATTRIBFLAG_COLOR;
+		glVertexAttribPointer(ATTRIB_COLOR, 4, GL_UNSIGNED_BYTE, GL_TRUE, 0, colors);
+	}
+
+	gl.useVertexAttribArrays(attribflags);
+	gl.drawArrays(GL_POINTS, 0, numpoints);
 }
 
 void Graphics::polyline(const float *coords, size_t count)

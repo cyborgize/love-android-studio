@@ -523,7 +523,7 @@ function love.run()
 			for name, a,b,c,d,e,f in love.event.poll() do
 				if name == "quit" then
 					if not love.quit or not love.quit() then
-						return
+						return a
 					end
 				end
 				love.handlers[name](a,b,c,d,e,f)
@@ -581,6 +581,7 @@ function love.errhand(msg)
 	if love.mouse then
 		love.mouse.setVisible(true)
 		love.mouse.setGrabbed(false)
+		love.mouse.setRelativeMode(false)
 	end
 	if love.joystick then
 		-- Stop all joystick vibrations.
@@ -632,9 +633,9 @@ function love.errhand(msg)
 				return
 			elseif e == "keypressed" and a == "escape" then
 				return
-			elseif e == "mousereleased" then
+			elseif e == "touchreleased" then
 				local name = love.window.getTitle()
-				if #name == 0 then name = "Game" end
+				if #name == 0 or name == "Untitled" then name = "Game" end
 				local buttons = {"OK", "Cancel"}
 				local pressed = love.window.showMessageBox("Quit "..name.."?", "", buttons)
 				if pressed == 1 then

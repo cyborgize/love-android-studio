@@ -130,6 +130,7 @@ static long vorbisTell(void *datasource	/* ptr to the data that the vorbis files
 
 VorbisDecoder::VorbisDecoder(Data *data, const std::string &ext, int bufferSize)
 	: Decoder(data, ext, bufferSize)
+	, duration(-2.0)
 {
 	// Initialize callbacks
 	vorbisCallbacks.close_func = vorbisClose;
@@ -210,7 +211,14 @@ int VorbisDecoder::decode()
 
 bool VorbisDecoder::seek(float s)
 {
-	int result = ov_time_seek(&handle, s);
+	int result = 0;
+
+	// Avoid ov_time_seek (which calls ov_pcm_seek) when seeking to 0, to avoid
+	// a bug in libvorbis <= 1.3.4 when seeking to PCM 0 in multiplexed streams.
+	if (s <= 0.000001)
+		result = ov_raw_seek(&handle, 0);
+	else
+		result = ov_time_seek(&handle, s);
 
 	if (result == 0)
 	{
@@ -223,7 +231,9 @@ bool VorbisDecoder::seek(float s)
 
 bool VorbisDecoder::rewind()
 {
-	int result = ov_pcm_seek(&handle, 0);
+	// Avoid ov_time_seek to avoid a bug in libvorbis <= 1.3.4 when seeking to
+	// PCM 0 in multiplexed streams.
+	int result = ov_raw_seek(&handle, 0);
 
 	if (result == 0)
 	{
@@ -253,6 +263,20 @@ int VorbisDecoder::getBitDepth() const
 int VorbisDecoder::getSampleRate() const
 {
 	return (int) vorbisInfo->rate;
+}
+
+double VorbisDecoder::getDuration()
+{
+	// Only calculate the duration if we haven't done so already.
+	if (duration == -2.0)
+	{
+		duration = ov_time_total(&handle, -1);
+
+		if (duration == OV_EINVAL || duration < 0.0)
+			duration = -1.0;
+	}
+
+	return duration;
 }
 
 } // lullaby

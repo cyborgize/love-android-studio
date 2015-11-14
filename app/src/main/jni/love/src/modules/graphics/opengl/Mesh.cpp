@@ -64,6 +64,7 @@ Mesh::Mesh(const std::vector<AttribFormat> &vertexformat, const void *data, size
 	, vertexCount(0)
 	, vertexStride(0)
 	, ibo(nullptr)
+	, useIndexBuffer(false)
 	, elementCount(0)
 	, elementDataType(0)
 	, drawMode(drawmode)
@@ -90,6 +91,7 @@ Mesh::Mesh(const std::vector<AttribFormat> &vertexformat, int vertexcount, DrawM
 	, vertexCount((size_t) vertexcount)
 	, vertexStride(0)
 	, ibo(nullptr)
+	, useIndexBuffer(false)
 	, elementCount(0)
 	, elementDataType(getGLDataTypeFromMax(vertexcount))
 	, drawMode(drawmode)
@@ -414,6 +416,7 @@ void Mesh::setVertexMap(const std::vector<uint32> &map)
 	if (!ibo && size > 0)
 		ibo = new GLBuffer(size, nullptr, GL_ELEMENT_ARRAY_BUFFER, vbo->getUsage());
 
+	useIndexBuffer = true;
 	elementCount = map.size();
 
 	if (!ibo || elementCount == 0)
@@ -437,6 +440,11 @@ void Mesh::setVertexMap(const std::vector<uint32> &map)
 	elementDataType = datatype;
 }
 
+void Mesh::setVertexMap()
+{
+	useIndexBuffer = false;
+}
+
 /**
  * Copies index data from a mapped buffer to a vector.
  **/
@@ -448,13 +456,16 @@ static void copyFromIndexBuffer(void *buffer, size_t count, std::vector<uint32> 
 		indices.push_back((uint32) elems[i]);
 }
 
-void Mesh::getVertexMap(std::vector<uint32> &map) const
+bool Mesh::getVertexMap(std::vector<uint32> &map) const
 {
-	if (!ibo || elementCount == 0)
-		return;
+	if (!useIndexBuffer)
+		return false;
 
 	map.clear();
 	map.reserve(elementCount);
+
+	if (!ibo || elementCount == 0)
+		return true;
 
 	GLBuffer::Bind ibobind(*ibo);
 
@@ -472,6 +483,8 @@ void Mesh::getVertexMap(std::vector<uint32> &map) const
 		copyFromIndexBuffer<uint32>(buffer, elementCount, map);
 		break;
 	}
+
+	return true;
 }
 
 size_t Mesh::getVertexMapCount() const
@@ -568,11 +581,9 @@ void Mesh::draw(float x, float y, float angle, float sx, float sy, float ox, flo
 		enabledattribs |= 1 << uint32(attriblocation);
 	}
 
+	// Not supported on all platforms or GL versions, I believe.
 	if (!(enabledattribs & ATTRIBFLAG_POS))
-	{
-		// Not supported on all platforms or GL versions at least, I believe.
 		throw love::Exception("Mesh must have an enabled VertexPosition attribute to be drawn.");
-	}
 
 	gl.useVertexAttribArrays(enabledattribs);
 
@@ -588,7 +599,7 @@ void Mesh::draw(float x, float y, float angle, float sx, float sy, float ox, flo
 
 	gl.prepareDraw();
 
-	if (ibo && elementCount > 0)
+	if (useIndexBuffer && ibo && elementCount > 0)
 	{
 		// Use the custom vertex map (index buffer) to draw the vertices.
 		GLBuffer::Bind ibo_bind(*ibo);

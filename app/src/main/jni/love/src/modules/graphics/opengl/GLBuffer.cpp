@@ -163,12 +163,10 @@ void GLBuffer::setMappedRangeModified(size_t offset, size_t modifiedsize)
 	// from the start of section a to the end of section b as modified if both
 	// a and b are marked as modified.
 
-	size_t old_range_end = modified_offset + modified_offset;
-
+	size_t old_range_end = modified_offset + modified_size;
 	modified_offset = std::min(modified_offset, offset);
 
 	size_t new_range_end = std::max(offset + modifiedsize, old_range_end);
-
 	modified_size = new_range_end - modified_offset;
 }
 
